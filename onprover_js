@@ -1,0 +1,125 @@
+// ==UserScript==
+// @name         onprover自动脚本
+// @namespace    http://tampermonkey.net/
+// @version      1.2
+// @description  仅显示控制台日志的简化版
+// @author       柠檬
+// @match        https://onprover.orochi.network/*
+// @grant        none
+// ==/UserScript==
+
+(function() {
+    'use strict';
+
+    // 创建日志面板
+    const logPanel = document.createElement('div');
+    Object.assign(logPanel.style, {
+        position: 'fixed',
+        right: '10px',
+        bottom: '10px',
+        width: '350px',
+        height: '200px',
+        backgroundColor: 'rgba(255, 255, 255, 0.8)',
+        padding: '10px',
+        overflowY: 'auto',
+        zIndex: 9999,
+        borderRadius: '5px',
+        fontSize: '12px',
+        lineHeight: '1.5',
+        fontFamily: 'monospace'
+    });
+    document.body.appendChild(logPanel);
+
+    // 保留原始console.log
+    const originalLog = console.log;
+
+    // 重写日志方法
+    console.log = function(...args) {
+        // 原始日志输出
+        originalLog.apply(console, args);
+
+        // 面板日志输出
+        const logEntry = document.createElement('div');
+        logEntry.textContent = args.join(' ');
+        logPanel.appendChild(logEntry);
+
+        // 自动滚动和限制条目
+        logPanel.scrollTop = logPanel.scrollHeight;
+        if(logPanel.childElementCount > 80) {
+            logPanel.removeChild(logPanel.firstChild);
+        }
+    };
+
+    // 原有脚本功能保持不变
+    let lastStats = { earned: null, proofs: null, new: null };
+    let stuckCounter = 0;
+
+    function getStats() {
+        const spans = document.querySelectorAll("span");
+        const getNumber = (label) => {
+            for (let span of spans) {
+                if (span.textContent.includes(label)) {
+                    return span.parentElement?.previousElementSibling?.textContent?.trim();
+                }
+            }
+            return null;
+        };
+        return {
+            earned: getNumber("$ON EARNED"),
+            proofs: getNumber("VERIFIED PROOFS"),
+            new: getNumber("NEW PROOFS"),
+        };
+    }
+
+    function autoClickProver(retry = 20) {
+        let attempts = 0;
+        const interval = setInterval(() => {
+            const buttons = document.querySelectorAll("button");
+            for (let btn of buttons) {
+                const txt = btn.textContent.trim().toLowerCase();
+                if (txt.includes("prover") && !txt.includes("stop")) {
+                    console.log("[自动点击] Prover 按钮触发");
+                    btn.click();
+                    clearInterval(interval);
+                    return;
+                }
+            }
+            attempts++;
+            if (attempts >= retry) {
+                console.log("[失败] 多次尝试未找到按钮");
+                clearInterval(interval);
+            }
+        }, 1000);
+    }
+
+    setTimeout(() => {
+        if (document.body.innerText.includes("确认您是真人")) {
+            alert("⚠️ 请手动完成验证码 ✅，之后脚本会继续运行！");
+        } else {
+            autoClickProver();
+        }
+    }, 4000);
+
+    setInterval(() => {
+        const current = getStats();
+        //console.log("[状态监控]", JSON.stringify(current));
+         console.log(`[状态更新] 收益: ${current.earned} | 验证: ${current.proofs} | 新增: ${current.new}`);
+
+        if (
+            current.earned === lastStats.earned &&
+            current.proofs === lastStats.proofs &&
+            current.new === lastStats.new
+        ) {
+            stuckCounter++;
+            console.log(`[卡顿警告] 第 ${stuckCounter} 分钟无变化`);
+        } else {
+            stuckCounter = 0;
+            lastStats = current;
+        }
+
+        if (stuckCounter >= 10) {
+            console.log("[页面刷新] 检测到10分钟无响应，正在刷新...");
+            location.reload();
+        }
+    }, 60 * 1000);
+})();
